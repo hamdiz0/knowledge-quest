@@ -1,0 +1,25 @@
+services:
+
+  backend:
+    build:
+      context: ./back
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - GEMINI_KEY=your_api_key
+      - PORT=80
+
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    environment:
+      - PORT=80
+      - VITE_USE_INTERNAL_API=true
+      - VITE_INTERNAL_API_BASE=http://backend/api
+      - VITE_EXTERNAL_API_BASE=http://localhost:3000/api
