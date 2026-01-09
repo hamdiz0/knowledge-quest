@@ -18,6 +18,21 @@ export default class QuizScene extends Phaser.Scene {
     this.currentQuestion = null;
     this.particles = null;
     
+    // Wing state
+    this.leftWing = null;
+    this.rightWing = null;
+    this.leftWingGlow = null;
+    this.rightWingGlow = null;
+    this.wingsOpen = false;
+    this.wingOpenness = 0;
+    this.wingsTween = null;
+    this.flapTween = null;
+    this.wasOnGround = true;
+    
+    // Fast fall state
+    this.isFastFalling = false;
+    this.fastFallTween = null;
+    
     // Callbacks to React
     this.onAnswerSelect = null;
   }
@@ -235,11 +250,12 @@ export default class QuizScene extends Phaser.Scene {
       // Option text
       const text = this.add.text(0, 0, option, {
         fontFamily: '"Space Grotesk", "Segoe UI", sans-serif',
-        fontSize: '16px',
+        fontSize: '18px',
         fontStyle: 'bold',
         color: '#ffffff',
         align: 'center',
-        wordWrap: { width: ANSWER_BOX_WIDTH - 20 },
+        wordWrap: { width: ANSWER_BOX_WIDTH - 30 },
+        lineSpacing: 4,
       });
       text.setOrigin(0.5, 0.5);
       container.add(text);
@@ -273,44 +289,45 @@ export default class QuizScene extends Phaser.Scene {
     const startX = WIDTH / 2;
     const startY = HEIGHT - GROUND_HEIGHT - (PLAYER_SIZE / 2);
     
-    // Create player graphics
+    // Create player graphics - scaled for larger size
     const playerGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    const scale = PLAYER_SIZE / 48; // Original design was for 48px
     
-    // Draw robot character
+    // Draw robot character (scaled)
     // Body
     playerGraphics.fillStyle(0x06b6d4, 1);
-    playerGraphics.fillRoundedRect(8, 16, 32, 28, 6);
+    playerGraphics.fillRoundedRect(8 * scale, 16 * scale, 32 * scale, 28 * scale, 6 * scale);
     
     // Head
     playerGraphics.fillStyle(0x7c3aed, 1);
-    playerGraphics.fillRoundedRect(10, 2, 28, 18, 8);
+    playerGraphics.fillRoundedRect(10 * scale, 2 * scale, 28 * scale, 18 * scale, 8 * scale);
     
     // Eyes
     playerGraphics.fillStyle(0xffffff, 1);
-    playerGraphics.fillCircle(18, 10, 5);
-    playerGraphics.fillCircle(30, 10, 5);
+    playerGraphics.fillCircle(18 * scale, 10 * scale, 5 * scale);
+    playerGraphics.fillCircle(30 * scale, 10 * scale, 5 * scale);
     
     // Pupils
     playerGraphics.fillStyle(0x1a0a2e, 1);
-    playerGraphics.fillCircle(19, 10, 2);
-    playerGraphics.fillCircle(31, 10, 2);
+    playerGraphics.fillCircle(19 * scale, 10 * scale, 2 * scale);
+    playerGraphics.fillCircle(31 * scale, 10 * scale, 2 * scale);
     
     // Antenna
-    playerGraphics.lineStyle(2, 0xf59e0b, 1);
+    playerGraphics.lineStyle(2 * scale, 0xf59e0b, 1);
     playerGraphics.beginPath();
-    playerGraphics.moveTo(24, 2);
-    playerGraphics.lineTo(24, -6);
+    playerGraphics.moveTo(24 * scale, 2 * scale);
+    playerGraphics.lineTo(24 * scale, -6 * scale);
     playerGraphics.strokePath();
     playerGraphics.fillStyle(0xf59e0b, 1);
-    playerGraphics.fillCircle(24, -8, 4);
+    playerGraphics.fillCircle(24 * scale, -8 * scale, 4 * scale);
     
     // Legs
     playerGraphics.fillStyle(0x4c1d95, 1);
-    playerGraphics.fillRoundedRect(12, 42, 8, 10, 2);
-    playerGraphics.fillRoundedRect(28, 42, 8, 10, 2);
+    playerGraphics.fillRoundedRect(12 * scale, 42 * scale, 8 * scale, 10 * scale, 2 * scale);
+    playerGraphics.fillRoundedRect(28 * scale, 42 * scale, 8 * scale, 10 * scale, 2 * scale);
     
     // Generate texture from graphics
-    playerGraphics.generateTexture('player', PLAYER_SIZE, PLAYER_SIZE + 8);
+    playerGraphics.generateTexture('player', PLAYER_SIZE, PLAYER_SIZE + 8 * scale);
     playerGraphics.destroy();
     
     // Create player sprite
@@ -320,9 +337,234 @@ export default class QuizScene extends Phaser.Scene {
     this.player.setSize(PLAYER_SIZE - 8, PLAYER_SIZE);
     this.player.setOffset(4, 4);
     
+    // Create wings
+    this.createWings(startX, startY);
+    
     // Player glow effect
-    this.playerGlow = this.add.circle(startX, startY, 30, COLORS.secondary, 0.15);
+    this.playerGlow = this.add.circle(startX, startY, 40, COLORS.secondary, 0.15);
     this.playerGlow.setBlendMode(Phaser.BlendModes.ADD);
+  }
+
+  /**
+   * Create animated wings for the player
+   */
+  createWings(x, y) {
+    // Left wing (will be positioned relative to player)
+    this.leftWing = this.add.graphics();
+    this.leftWing.setPosition(x, y);
+    
+    // Right wing
+    this.rightWing = this.add.graphics();
+    this.rightWing.setPosition(x, y);
+    
+    // Draw initial closed wings
+    this.drawWings(0); // 0 = closed, 1 = fully open
+    
+    // Wing glow effects
+    this.leftWingGlow = this.add.graphics();
+    this.leftWingGlow.setPosition(x, y);
+    this.leftWingGlow.setBlendMode(Phaser.BlendModes.ADD);
+    this.leftWingGlow.setAlpha(0);
+    
+    this.rightWingGlow = this.add.graphics();
+    this.rightWingGlow.setPosition(x, y);
+    this.rightWingGlow.setBlendMode(Phaser.BlendModes.ADD);
+    this.rightWingGlow.setAlpha(0);
+  }
+
+  /**
+   * Draw wings at a specific openness level
+   * @param {number} openness - 0 (closed) to 1 (fully open)
+   */
+  drawWings(openness) {
+    const wingColor = 0xf59e0b;
+    const wingInnerColor = 0xfcd34d;
+    const wingOutlineColor = 0xd97706;
+    
+    // Clear previous drawings
+    this.leftWing.clear();
+    this.rightWing.clear();
+    
+    // Wing dimensions based on openness
+    const wingWidth = 8 + (openness * 20);  // 8px closed, 28px open
+    const wingHeight = 12 + (openness * 8); // 12px closed, 20px open
+    const wingAngle = openness * 0.3;       // Slight upward angle when open
+    const wingOffsetY = -5 - (openness * 5); // Move up when open
+    
+    // Left wing
+    this.leftWing.fillStyle(wingColor, 0.9);
+    this.leftWing.beginPath();
+    this.leftWing.moveTo(-8, wingOffsetY);
+    this.leftWing.lineTo(-8 - wingWidth, wingOffsetY - (wingHeight * wingAngle));
+    this.leftWing.lineTo(-8 - wingWidth * 0.7, wingOffsetY + wingHeight * 0.5);
+    this.leftWing.lineTo(-8, wingOffsetY + 8);
+    this.leftWing.closePath();
+    this.leftWing.fillPath();
+    
+    // Left wing inner detail
+    this.leftWing.fillStyle(wingInnerColor, 0.6);
+    this.leftWing.beginPath();
+    this.leftWing.moveTo(-10, wingOffsetY + 2);
+    this.leftWing.lineTo(-8 - wingWidth * 0.6, wingOffsetY - (wingHeight * wingAngle * 0.5));
+    this.leftWing.lineTo(-8 - wingWidth * 0.5, wingOffsetY + wingHeight * 0.3);
+    this.leftWing.closePath();
+    this.leftWing.fillPath();
+    
+    // Left wing outline
+    this.leftWing.lineStyle(2, wingOutlineColor, 1);
+    this.leftWing.beginPath();
+    this.leftWing.moveTo(-8, wingOffsetY);
+    this.leftWing.lineTo(-8 - wingWidth, wingOffsetY - (wingHeight * wingAngle));
+    this.leftWing.lineTo(-8 - wingWidth * 0.7, wingOffsetY + wingHeight * 0.5);
+    this.leftWing.lineTo(-8, wingOffsetY + 8);
+    this.leftWing.closePath();
+    this.leftWing.strokePath();
+    
+    // Right wing (mirrored)
+    this.rightWing.fillStyle(wingColor, 0.9);
+    this.rightWing.beginPath();
+    this.rightWing.moveTo(8, wingOffsetY);
+    this.rightWing.lineTo(8 + wingWidth, wingOffsetY - (wingHeight * wingAngle));
+    this.rightWing.lineTo(8 + wingWidth * 0.7, wingOffsetY + wingHeight * 0.5);
+    this.rightWing.lineTo(8, wingOffsetY + 8);
+    this.rightWing.closePath();
+    this.rightWing.fillPath();
+    
+    // Right wing inner detail
+    this.rightWing.fillStyle(wingInnerColor, 0.6);
+    this.rightWing.beginPath();
+    this.rightWing.moveTo(10, wingOffsetY + 2);
+    this.rightWing.lineTo(8 + wingWidth * 0.6, wingOffsetY - (wingHeight * wingAngle * 0.5));
+    this.rightWing.lineTo(8 + wingWidth * 0.5, wingOffsetY + wingHeight * 0.3);
+    this.rightWing.closePath();
+    this.rightWing.fillPath();
+    
+    // Right wing outline
+    this.rightWing.lineStyle(2, wingOutlineColor, 1);
+    this.rightWing.beginPath();
+    this.rightWing.moveTo(8, wingOffsetY);
+    this.rightWing.lineTo(8 + wingWidth, wingOffsetY - (wingHeight * wingAngle));
+    this.rightWing.lineTo(8 + wingWidth * 0.7, wingOffsetY + wingHeight * 0.5);
+    this.rightWing.lineTo(8, wingOffsetY + 8);
+    this.rightWing.closePath();
+    this.rightWing.strokePath();
+    
+    // Update glow if wings are open
+    if (this.leftWingGlow && this.rightWingGlow) {
+      this.leftWingGlow.clear();
+      this.rightWingGlow.clear();
+      
+      if (openness > 0.5) {
+        const glowAlpha = (openness - 0.5) * 0.6;
+        
+        // Left glow
+        this.leftWingGlow.fillStyle(0xfbbf24, glowAlpha);
+        this.leftWingGlow.fillCircle(-8 - wingWidth * 0.5, wingOffsetY, 8);
+        
+        // Right glow
+        this.rightWingGlow.fillStyle(0xfbbf24, glowAlpha);
+        this.rightWingGlow.fillCircle(8 + wingWidth * 0.5, wingOffsetY, 8);
+      }
+    }
+  }
+
+  /**
+   * Animate wings opening
+   */
+  openWings() {
+    if (this.wingsOpen || this.wingsTween) return;
+    
+    this.wingsOpen = true;
+    this.wingOpenness = 0;
+    
+    this.wingsTween = this.tweens.add({
+      targets: this,
+      wingOpenness: 1,
+      duration: 200,
+      ease: 'Back.easeOut',
+      onUpdate: () => {
+        this.drawWings(this.wingOpenness);
+      },
+      onComplete: () => {
+        this.wingsTween = null;
+        // Add subtle flapping animation while in air
+        this.startWingFlap();
+      }
+    });
+  }
+
+  /**
+   * Animate wings closing
+   */
+  closeWings() {
+    if (!this.wingsOpen) return;
+    
+    // Stop flapping
+    if (this.flapTween) {
+      this.flapTween.stop();
+      this.flapTween = null;
+    }
+    
+    if (this.wingsTween) {
+      this.wingsTween.stop();
+    }
+    
+    this.wingsTween = this.tweens.add({
+      targets: this,
+      wingOpenness: 0,
+      duration: 150,
+      ease: 'Power2',
+      onUpdate: () => {
+        this.drawWings(this.wingOpenness);
+      },
+      onComplete: () => {
+        this.wingsOpen = false;
+        this.wingsTween = null;
+      }
+    });
+  }
+
+  /**
+   * Subtle wing flapping animation while in air
+   */
+  startWingFlap() {
+    if (!this.wingsOpen) return;
+    
+    this.flapTween = this.tweens.add({
+      targets: this,
+      wingOpenness: 0.85,
+      duration: 150,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+      onUpdate: () => {
+        if (this.wingsOpen) {
+          this.drawWings(this.wingOpenness);
+        }
+      }
+    });
+  }
+
+  /**
+   * Update wing positions to follow player
+   */
+  updateWingPositions() {
+    if (!this.player || !this.leftWing || !this.rightWing) return;
+    
+    const playerX = this.player.x;
+    const playerY = this.player.y;
+    
+    // Position wings at player's center (offset for body position)
+    this.leftWing.setPosition(playerX, playerY);
+    this.rightWing.setPosition(playerX, playerY);
+    
+    // Update glow positions too
+    if (this.leftWingGlow) {
+      this.leftWingGlow.setPosition(playerX, playerY);
+    }
+    if (this.rightWingGlow) {
+      this.rightWingGlow.setPosition(playerX, playerY);
+    }
   }
 
   /**
@@ -441,7 +683,11 @@ export default class QuizScene extends Phaser.Scene {
   update() {
     if (!this.player || !this.canCollide) return;
     
-    const { PLAYER_SPEED, JUMP_VELOCITY } = GAME_CONFIG;
+    const { PLAYER_SPEED, JUMP_VELOCITY, FAST_FALL_VELOCITY } = GAME_CONFIG;
+    
+    // Track if player was on ground last frame
+    const wasOnGround = this.wasOnGround;
+    const isOnGround = this.player.body.touching.down;
     
     // Horizontal movement
     const leftPressed = this.cursors.left.isDown || this.wasd.left.isDown || this.wasd.qLeft.isDown;
@@ -460,15 +706,169 @@ export default class QuizScene extends Phaser.Scene {
     // Jumping
     const jumpPressed = this.cursors.up.isDown || this.wasd.up.isDown || this.wasd.jump.isDown || this.wasd.zUp.isDown;
     
-    if (jumpPressed && this.player.body.touching.down) {
+    if (jumpPressed && isOnGround) {
       this.player.setVelocityY(JUMP_VELOCITY);
       this.createJumpParticles();
+      this.isFastFalling = false;
     }
+    
+    // Fast fall / Cancel jump (down arrow or S)
+    const downPressed = this.cursors.down.isDown || this.wasd.down.isDown;
+    
+    if (downPressed && !isOnGround && !this.isFastFalling) {
+      this.startFastFall();
+    }
+    
+    // Reset fast fall state when landing
+    if (isOnGround && this.isFastFalling) {
+      this.endFastFall();
+    }
+    
+    // Wing animations based on ground state
+    if (wasOnGround && !isOnGround) {
+      // Just left the ground - open wings
+      this.openWings();
+    } else if (!wasOnGround && isOnGround) {
+      // Just landed - close wings
+      this.closeWings();
+    }
+    
+    // Update ground state for next frame
+    this.wasOnGround = isOnGround;
     
     // Update player glow position
     if (this.playerGlow) {
       this.playerGlow.x = this.player.x;
       this.playerGlow.y = this.player.y;
+    }
+    
+    // Update wing positions to follow player
+    this.updateWingPositions();
+  }
+
+  /**
+   * Start fast fall animation and physics
+   */
+  startFastFall() {
+    this.isFastFalling = true;
+    
+    const { FAST_FALL_VELOCITY } = GAME_CONFIG;
+    
+    // Immediately set downward velocity
+    this.player.setVelocityY(FAST_FALL_VELOCITY);
+    
+    // Close wings quickly during fast fall
+    if (this.wingsOpen) {
+      // Stop any existing wing animations
+      if (this.flapTween) {
+        this.flapTween.stop();
+        this.flapTween = null;
+      }
+      if (this.wingsTween) {
+        this.wingsTween.stop();
+      }
+      
+      // Quick wing fold animation
+      this.wingsTween = this.tweens.add({
+        targets: this,
+        wingOpenness: 0.2, // Partially closed, tucked position
+        duration: 100,
+        ease: 'Power2',
+        onUpdate: () => {
+          this.drawWings(this.wingOpenness);
+        }
+      });
+    }
+    
+    // Create dive particles
+    this.createFastFallParticles();
+    
+    // Add a slight squish effect
+    this.tweens.add({
+      targets: this.player,
+      scaleX: 0.9,
+      scaleY: 1.15,
+      duration: 100,
+      ease: 'Power2',
+    });
+  }
+
+  /**
+   * End fast fall state
+   */
+  endFastFall() {
+    this.isFastFalling = false;
+    
+    // Reset player scale with bounce
+    this.tweens.add({
+      targets: this.player,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 150,
+      ease: 'Back.easeOut',
+    });
+    
+    // Create landing impact particles
+    this.createLandingParticles();
+  }
+
+  /**
+   * Create particles during fast fall
+   */
+  createFastFallParticles() {
+    const x = this.player.x;
+    const y = this.player.y - 20;
+    
+    for (let i = 0; i < 6; i++) {
+      const particle = this.add.circle(
+        x + Phaser.Math.Between(-10, 10),
+        y,
+        Phaser.Math.Between(2, 4),
+        0x06b6d4,
+        0.8
+      );
+      
+      this.tweens.add({
+        targets: particle,
+        y: y - 40,
+        alpha: 0,
+        scale: 0,
+        duration: 200,
+        ease: 'Power2',
+        onComplete: () => particle.destroy(),
+      });
+    }
+  }
+
+  /**
+   * Create particles on landing from fast fall
+   */
+  createLandingParticles() {
+    const x = this.player.x;
+    const y = this.player.y + 25;
+    
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI / 6) + (i / 8) * (Math.PI * 2 / 3); // Spread below
+      const speed = Phaser.Math.Between(30, 60);
+      
+      const particle = this.add.circle(
+        x,
+        y,
+        Phaser.Math.Between(3, 5),
+        0x7c3aed,
+        0.9
+      );
+      
+      this.tweens.add({
+        targets: particle,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed * 0.5,
+        alpha: 0,
+        scale: 0,
+        duration: 300,
+        ease: 'Power2',
+        onComplete: () => particle.destroy(),
+      });
     }
   }
 
@@ -512,8 +912,31 @@ export default class QuizScene extends Phaser.Scene {
     if (this.player) {
       this.player.setPosition(WIDTH / 2, groundY);
       this.player.setVelocity(0, 0);
+      this.player.setScale(1, 1); // Reset any scale changes from fast fall
     }
     this.canCollide = true;
+    
+    // Reset wing state
+    this.wasOnGround = true;
+    this.isFastFalling = false;
+    
+    // Stop any wing tweens
+    if (this.wingsTween) {
+      this.wingsTween.stop();
+      this.wingsTween = null;
+    }
+    if (this.flapTween) {
+      this.flapTween.stop();
+      this.flapTween = null;
+    }
+    
+    // Close wings immediately
+    this.wingsOpen = false;
+    this.wingOpenness = 0;
+    this.drawWings(0);
+    
+    // Update wing positions
+    this.updateWingPositions();
   }
 
   /**

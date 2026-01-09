@@ -12,9 +12,8 @@ import LoadingScreen from './components/screens/LoadingScreen.jsx';
 import ResultsScreen from './components/screens/ResultsScreen.jsx';
 
 // UI Components
-import StatsBar from './components/ui/StatsBar.jsx';
-import QuestionDisplay from './components/ui/QuestionDisplay.jsx';
-import LyraMessage from './components/ui/LyraMessage.jsx';
+import LeftSidebar from './components/ui/LeftSidebar.jsx';
+import RightSidebar from './components/ui/RightSidebar.jsx';
 
 // Game
 import PhaserGame from './game/PhaserGame.jsx';
@@ -57,7 +56,6 @@ const KnowledgeQuest = () => {
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
-  const [lives, setLives] = useState(3);
   const [correctAnswers, setCorrectAnswers] = useState(0);
   const [wrongAnswers, setWrongAnswers] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
@@ -183,7 +181,6 @@ const KnowledgeQuest = () => {
         setLyraMessage(LYRA_MESSAGES.correct[Math.floor(Math.random() * LYRA_MESSAGES.correct.length)]);
       }
     } else {
-      setLives(prev => prev - 1);
       setStreak(0);
       setWrongAnswers(prev => prev + 1);
       setLyraMessage(LYRA_MESSAGES.wrong[Math.floor(Math.random() * LYRA_MESSAGES.wrong.length)]);
@@ -191,7 +188,7 @@ const KnowledgeQuest = () => {
 
     // Proceed to next question after delay
     setTimeout(() => {
-      if (currentQuestionIndex < questions.length - 1 && lives > (isCorrect ? 0 : 1)) {
+      if (currentQuestionIndex < questions.length - 1) {
         setCurrentQuestionIndex(prev => prev + 1);
         setShowFeedback(false);
         setTimeLeft(30);
@@ -204,7 +201,7 @@ const KnowledgeQuest = () => {
         setGameState('results');
       }
     }, 2000);
-  }, [showFeedback, timeLeft, questions, currentQuestionIndex, streak, lives]);
+  }, [showFeedback, timeLeft, questions, currentQuestionIndex, streak]);
 
   // Reset game
   const resetGame = () => {
@@ -216,7 +213,6 @@ const KnowledgeQuest = () => {
     setScore(0);
     setStreak(0);
     setMaxStreak(0);
-    setLives(3);
     setShowFeedback(false);
     setLyraMessage(LYRA_MESSAGES.welcome);
     setTimeLeft(30);
@@ -275,49 +271,75 @@ const KnowledgeQuest = () => {
   // Playing state
   if (gameState === 'playing' && questions.length > 0) {
     const currentQ = questions[currentQuestionIndex];
+    const timePercentage = (timeLeft / 30) * 100;
+    const timeColor = timeLeft <= 5 ? 'bg-rose-500' : timeLeft <= 10 ? 'bg-amber-500' : 'bg-emerald-500';
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-950 p-4 flex flex-col">
-        {/* Stats bar */}
-        <div className="max-w-6xl mx-auto w-full mb-4">
-          <StatsBar
-            score={score}
-            streak={streak}
-            lives={lives}
-            timeLeft={timeLeft}
-          />
-        </div>
-
-        {/* Question display */}
-        <div className="max-w-6xl mx-auto w-full mb-4">
-          <QuestionDisplay
-            question={currentQ.question}
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-950 p-4">
+        <div className="h-[calc(100vh-2rem)] max-w-[1600px] mx-auto grid grid-cols-[240px_1fr_280px] gap-4">
+          {/* Left Sidebar - Progress */}
+          <LeftSidebar
             currentIndex={currentQuestionIndex}
             totalQuestions={questions.length}
-            difficulty={currentQ.difficulty}
+            answerHistory={answerHistory}
           />
-        </div>
 
-        {/* Phaser game area */}
-        <div className="flex-1 max-w-6xl mx-auto w-full mb-4">
-          <PhaserGame
-            ref={gameRef}
-            question={currentQ}
-            onAnswerSelect={handleAnswerSelect}
-            isPaused={showFeedback}
+          {/* Center - Main Game Area */}
+          <div className="flex flex-col gap-3 min-w-0">
+            {/* Question display - fits content with generous max-width */}
+            <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl p-4 border border-purple-500/20 shadow-xl">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-slate-500 text-xs">Question {currentQuestionIndex + 1}</span>
+                {currentQ.difficulty && (
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide border ${
+                    currentQ.difficulty === 'hard' 
+                      ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                      : currentQ.difficulty === 'medium'
+                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                        : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  }`}>
+                    {currentQ.difficulty}
+                  </span>
+                )}
+              </div>
+              <h3 className="text-base md:text-lg font-bold text-white leading-snug">
+                {currentQ.question}
+              </h3>
+            </div>
+
+            {/* Phaser game area - takes remaining space */}
+            <div className="flex-1 min-h-0">
+              <PhaserGame
+                ref={gameRef}
+                question={currentQ}
+                onAnswerSelect={handleAnswerSelect}
+                isPaused={showFeedback}
+              />
+            </div>
+
+            {/* Timer bar - compact */}
+            <div className="bg-slate-900/80 backdrop-blur-xl rounded-xl p-2.5 border border-purple-500/20 shadow-xl">
+              <div className="flex items-center gap-3">
+                <span className={`text-xs font-bold min-w-[28px] ${timeLeft <= 5 ? 'text-rose-400' : 'text-slate-400'}`}>
+                  {timeLeft}s
+                </span>
+                <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
+                  <div
+                    className={`h-full transition-all duration-1000 ease-linear ${timeColor}`}
+                    style={{ width: `${timePercentage}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Sidebar - Stats & Controls */}
+          <RightSidebar
+            score={score}
+            streak={streak}
+            timeLeft={timeLeft}
+            lyraMessage={lyraMessage}
           />
-        </div>
-
-        {/* Controls hint */}
-        <div className="max-w-6xl mx-auto w-full text-center mb-4">
-          <p className="text-slate-500 text-sm">
-            Arrow Keys / WASD to move • Space / Up to jump
-          </p>
-        </div>
-
-        {/* Lyra message */}
-        <div className="max-w-6xl mx-auto w-full">
-          <LyraMessage message={lyraMessage} />
         </div>
       </div>
     );

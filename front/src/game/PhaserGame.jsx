@@ -60,7 +60,11 @@ const PhaserGame = forwardRef(({ question, onAnswerSelect, isPaused }, ref) => {
       },
       scale: {
         mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
+        autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
+        parent: gameContainerRef.current,
+        width: GAME_CONFIG.WIDTH,
+        height: GAME_CONFIG.HEIGHT,
+        expandParent: true,
       },
       render: {
         pixelArt: false,
@@ -123,11 +127,8 @@ const PhaserGame = forwardRef(({ question, onAnswerSelect, isPaused }, ref) => {
   return (
     <div 
       ref={gameContainerRef}
-      className="w-full rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl"
-      style={{ 
-        aspectRatio: `${GAME_CONFIG.WIDTH}/${GAME_CONFIG.HEIGHT}`,
-        maxHeight: '500px',
-      }}
+      className="w-full h-full rounded-2xl overflow-hidden border-2 border-purple-500/30 shadow-2xl bg-slate-900/50"
+      style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}
     />
   );
 });
